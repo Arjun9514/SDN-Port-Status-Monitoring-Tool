@@ -19,8 +19,8 @@ To implement an SDN-based solution using Mininet and a Ryu controller that monit
 
 Single switch topology with 3 hosts:
 
-* **h1** (Host 1 - Monitoring Target)
-* **h2** (Host 2 - Traffic Partner)
+* **h1** (Host 1 - Monitoring Target)  
+* **h2** (Host 2 - Traffic Partner)  
 * **h3** (Host 3 - Traffic Partner)
 
 ---
@@ -33,16 +33,56 @@ Single switch topology with 3 hosts:
 ryu-manager port_monitor.py
 ```
 
+### ✅ Expected Output
+
+```
+loading app port_monitor.py
+instantiating app PortMonitor
+PORT UP: Switch 1, Port 1
+PORT UP: Switch 1, Port 2
+PORT UP: Switch 1, Port 3
+```
+
+---
+
 ### 2. Start Mininet (OpenFlow 1.3)
 
 ```bash
 sudo mn --topo single,3 --controller remote --switch ovs,protocols=OpenFlow13
 ```
 
+### ✅ Expected Output
+
+```
+*** Creating network
+*** Adding controller
+*** Adding hosts:
+h1 h2 h3
+*** Adding switches:
+s1
+*** Starting network
+*** Starting CLI:
+mininet>
+```
+
+---
+
 ### 3. Initialize Connectivity
 
 ```bash
 mininet> h1 ping -c 3 h2
+```
+
+### ✅ Expected Output
+
+```
+PING 10.0.0.2 (10.0.0.2) 56(84) bytes of data.
+64 bytes from 10.0.0.2: icmp_seq=1 ttl=64 time=1.2 ms
+64 bytes from 10.0.0.2: icmp_seq=2 ttl=64 time=1.4 ms
+64 bytes from 10.0.0.2: icmp_seq=3 ttl=64 time=1.3 ms
+
+--- 10.0.0.2 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss
 ```
 
 ---
@@ -51,96 +91,145 @@ mininet> h1 ping -c 3 h2
 
 ### 🔹 Scenario 1: Normal Behavior (Learning Switch)
 
-Tests the controller's ability to handle `packet_in` events and install match-action rules for standard forwarding.
+#### Action
 
-* **Action:**
+```bash
+h1 ping h2
+```
 
-  ```bash
-  h1 ping h2
-  ```
-* **Observation:**
-  Successful ICMP replies; flow rules installed in switch.
+#### Expected Output (Mininet)
+
+```
+64 bytes from 10.0.0.2: icmp_seq=1 ttl=64 time=1.3 ms
+...
+```
+
+#### Expected Output (Ryu Logs)
+
+```
+Packet received: learning MAC addresses
+Flow added: in_port=1, eth_dst=...
+```
 
 ---
 
 ### 🔹 Scenario 2: Failure Detection (Port Down)
 
-Tests the monitoring tool's ability to detect and log physical link failures.
+#### Action
 
-* **Action:**
+```bash
+link s1 h1 down
+```
 
-  ```bash
-  link s1 h1 down
-  ```
-* **Observation:**
-  Controller logs a **CRITICAL ALERT** identifying the specific port and switch ID.
+#### Expected Output (Mininet)
+
+```
+*** Link s1-h1 down
+```
+
+#### Expected Output (Ryu Controller)
+
+```
+[!!!] CRITICAL: Port 1 on Switch 1 is DOWN
+PORT DOWN: Switch 1, Port 1
+```
+
+#### Expected Behavior
+
+```
+Destination Host Unreachable
+```
 
 ---
 
 ### 🔹 Scenario 3: Recovery Detection (Port Up)
 
-Tests the tool's ability to detect state restoration.
+#### Action
 
-* **Action:**
+```bash
+link s1 h1 up
+```
 
-  ```bash
-  link s1 h1 up
-  ```
-* **Observation:**
-  Controller logs an **INFO** message confirming the port is recovered.
+#### Expected Output (Mininet)
+
+```
+*** Link s1-h1 up
+```
+
+#### Expected Output (Ryu Controller)
+
+```
+[+] INFO: Port 1 on Switch 1 is UP
+PORT UP: Switch 1, Port 1
+```
+
+#### Expected Behavior
+
+```bash
+h1 ping h2
+```
+
+```
+64 bytes from 10.0.0.2: icmp_seq=1 ttl=64 time=1.2 ms
+```
 
 ---
 
 ## 📊 Monitoring Logic
 
-* **Asynchronous Messages:**
-  The controller listens for `OFPPortStatus` events from the switch.
-
-* **Event Classification:**
-  Logic identifies if a port was **Modified**, **Added**, or **Deleted**.
-
-* **Flow Management:**
-  Uses a **Table-Miss entry (Priority 0)** to redirect unknown packets to the controller for MAC learning.
+* Controller listens for `OFPPortStatus` events  
+* Detects MODIFY, ADD, DELETE events  
+* Uses Table-Miss flow (priority 0)  
+* Installs dynamic flows (priority 1)  
 
 ---
 
 ## 📈 Observations & Metrics
 
-* **Latency:** Average RTT of **1.492 ms** during normal operation
-* **Throughput:** **26.9 Gbits/sec** bandwidth observed via iperf
-* **Alert Accuracy:** Port status changes logged instantly upon link modification
+* Latency: ~1.492 ms  
+* Throughput: ~26.9 Gbits/sec  
+* Instant alert detection  
 
 ---
 
 ## 🔍 Flow Table Verification
 
-To view dynamically installed OpenFlow rules:
-
 ```bash
 sudo ovs-ofctl dump-flows s1 -O OpenFlow13
+```
+
+### Expected Output
+
+```
+priority=0 actions=CONTROLLER
+priority=1,in_port=1,dl_dst=xx:xx:xx:xx:xx:xx actions=output:2
+priority=1,in_port=2,dl_dst=xx:xx:xx:xx:xx:xx actions=output:1
 ```
 
 ---
 
 ## 📸 Proof of Execution
 
-* Ryu Controller logs showing real-time UP/DOWN alerts
-* Mininet outputs with successful ping and iperf results
-* Flow table entries demonstrating MAC-based forwarding rules
+* Ryu logs with port alerts  
+* Mininet ping results  
+* Flow table entries  
 
 ---
 
 ## ⚠️ Notes
 
-* Use the following command to clean Mininet before new sessions:
+```bash
+sudo mn -c
+```
 
-  ```bash
-  sudo mn -c
-  ```
-* Ensure OpenFlow 1.3 is specified for advanced port status support
+* Always use OpenFlow 1.3
 
 ---
 
 ## ✅ Conclusion
 
-The Port Status Monitoring Tool successfully demonstrates SDN’s capability to provide real-time network visibility and fault detection by leveraging asynchronous control plane messages.
+This tool demonstrates:
+
+* Real-time port monitoring  
+* Fast failure detection  
+* Dynamic SDN-based traffic handling  
